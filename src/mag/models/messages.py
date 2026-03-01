@@ -116,7 +116,11 @@ class ContactResolveResult(BaseModel):
 class MessageSend(BaseModel):
     """Request model for sending a message."""
 
-    to: str = Field(..., min_length=1, description="Recipient phone number or email")
+    to: str = Field(
+        ..., min_length=1, max_length=320,
+        pattern=r"^[^-]",  # Security: reject values starting with - (CLI flag injection)
+        description="Recipient phone number or email",
+    )
     text: str | None = Field(None, description="Message text")
     files: list[str] = Field(default_factory=list, description="Absolute paths to files to attach")
     service: str = Field(default="auto", description="Service: imessage, sms, or auto")

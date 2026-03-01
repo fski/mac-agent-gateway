@@ -1,5 +1,6 @@
 """Service adapter for remindctl CLI."""
 
+import asyncio
 import json
 import subprocess
 from datetime import datetime
@@ -52,37 +53,57 @@ class RemindctlError(Exception):
         self.stderr = stderr
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to error response dict."""
-        return CLIError(error=self.message, code=self.code, stderr=self.stderr).model_dump()
+        """Convert to error response dict.
+
+        Security: stderr is logged server-side but NOT exposed to clients.
+        """
+        import logging
+        if self.stderr:
+            logging.getLogger(__name__).debug("remindctl stderr: %s", self.stderr[:1000])
+        return CLIError(error=self.message, code=self.code, stderr="").model_dump()
 
 
-def _run_remindctl(*args: str, allow_empty: bool = False) -> dict[str, Any] | list[Any] | None:
-    """Execute remindctl with arguments and return parsed JSON output."""
+async def _run_remindctl(*args: str, allow_empty: bool = False) -> dict[str, Any] | list[Any] | None:
+    """Execute remindctl with arguments and return parsed JSON output.
+
+    Uses asyncio subprocess to avoid blocking the event loop.
+    """
     cmd = [REMINDCTL_BIN, *args, "--json"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise RemindctlError(
+                message="remindctl timed out after 30 seconds",
+                code=-1,
+                stderr="",
+            )
     except FileNotFoundError:
         raise RemindctlError(
             message="remindctl not found. Install with: brew install steipete/tap/remindctl",
             code=-1,
             stderr="",
         )
-    except subprocess.TimeoutExpired:
-        raise RemindctlError(
-            message="remindctl timed out after 30 seconds",
-            code=-1,
-            stderr="",
-        )
 
-    if result.returncode != 0:
+    stdout_text = stdout.decode() if stdout else ""
+    stderr_text = stderr.decode() if stderr else ""
+
+    if proc.returncode != 0:
         raise RemindctlError(
-            message=f"remindctl failed with exit code {result.returncode}",
-            code=result.returncode,
-            stderr=result.stderr.strip(),
+            message=f"remindctl failed with exit code {proc.returncode}",
+            code=proc.returncode,
+            stderr=stderr_text.strip(),
         )
 
     # Handle empty output (some commands like rename/delete don't output JSON)
-    if not result.stdout.strip():
+    if not stdout_text.strip():
         if allow_empty:
             return None
         raise RemindctlError(
@@ -92,12 +113,12 @@ def _run_remindctl(*args: str, allow_empty: bool = False) -> dict[str, Any] | li
         )
 
     try:
-        return json.loads(result.stdout)
+        return json.loads(stdout_text)
     except json.JSONDecodeError as e:
         raise RemindctlError(
             message=f"Failed to parse remindctl output: {e}",
             code=0,
-            stderr=result.stdout,
+            stderr=stdout_text,
         )
 
 

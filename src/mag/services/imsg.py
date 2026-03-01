@@ -34,10 +34,15 @@ class ImsgError(Exception):
         self.command = command
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to error response dict."""
+        """Convert to error response dict.
+
+        Security: stderr is logged server-side but NOT exposed to clients
+        to prevent leaking file paths, usernames, or internal details.
+        """
         result: dict[str, Any] = {"error": self.message, "code": self.code}
+        # Log full stderr server-side for debugging
         if self.stderr:
-            result["stderr"] = self.stderr[:500]  # Truncate long errors
+            logging.getLogger(__name__).debug("imsg stderr: %s", self.stderr[:1000])
 
         # Add hints for common permission issues
         stderr_lower = self.stderr.lower()

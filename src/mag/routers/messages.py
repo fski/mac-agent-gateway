@@ -364,9 +364,12 @@ async def reply_to_thread(request: Request, data: MessageReply) -> MessageSendRe
             detail="Either thread_id or recipient must be provided",
         )
 
-    # Check send allowlist if configured and recipient is provided
+    # Check send allowlist — must validate regardless of whether recipient
+    # is provided directly or resolved from thread_id
     settings = get_settings()
     allowlist = settings.get_send_allowlist()
+
+    # If recipient is explicit, check it now
     if allowlist and data.recipient and data.recipient not in allowlist:
         raise HTTPException(
             status_code=403,
@@ -375,6 +378,25 @@ async def reply_to_thread(request: Request, data: MessageReply) -> MessageSendRe
                 "hint": "Add recipient to MAG_MESSAGES_SEND_ALLOWLIST or clear the allowlist",
             },
         )
+
+    # If only thread_id is provided, resolve recipient and check allowlist
+    # before sending — prevents allowlist bypass via thread_id
+    resolved_recipient = data.recipient
+    if allowlist and not data.recipient and data.thread_id:
+        try:
+            thread = await imsg.get_thread(data.thread_id)
+            if thread and thread.participants:
+                resolved_recipient = thread.participants[0].handle or thread.participants[0].display_name
+                if resolved_recipient and resolved_recipient not in allowlist:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": f"Resolved recipient '{resolved_recipient}' is not in the send allowlist",
+                            "hint": "Add recipient to MAG_MESSAGES_SEND_ALLOWLIST or clear the allowlist",
+                        },
+                    )
+        except ImsgError:
+            pass  # Let the actual reply call handle thread resolution errors
 
     try:
         return await imsg.reply_to_thread(
@@ -507,7 +529,8 @@ async def extract_links(
 # Only files within these directories can be served
 _ATTACHMENT_ALLOWED_BASES = [
     Path.home() / "Library" / "Messages" / "Attachments",
-    Path("/var/folders"),  # Temporary files location on macOS
+    # /var/folders is too broad — contains temp files from all apps.
+    # Only allow the Messages-specific temp path pattern if needed.
 ]
 
 
@@ -545,7 +568,7 @@ def _validate_attachment_download_path(file_path: str) -> Path:
     if not resolved.exists():
         raise HTTPException(
             status_code=404,
-            detail={"error": "Attachment file not found", "path": str(resolved)},
+            detail={"error": "Attachment file not found"},
         )
     
     if not resolved.is_file():

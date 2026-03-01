@@ -179,6 +179,8 @@ async def bulk_complete_reminders(data: BulkIds) -> list[Reminder]:
     Provide a list of reminder IDs to complete in one request.
     """
     _require_capability("write")
+    for rid in data.ids:
+        _validate_id(rid, "reminder_id")
     try:
         return await remindctl.bulk_complete(data.ids)
     except RemindctlError as e:
@@ -192,6 +194,8 @@ async def bulk_delete_reminders(data: BulkIds) -> dict:
     Provide a list of reminder IDs to delete in one request.
     """
     _require_capability("write")
+    for rid in data.ids:
+        _validate_id(rid, "reminder_id")
     try:
         return await remindctl.bulk_delete(data.ids)
     except RemindctlError as e:
