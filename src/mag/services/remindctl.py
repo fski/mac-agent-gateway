@@ -170,7 +170,7 @@ async def list_reminders(
     if list_name:
         args.extend(["--list", list_name])
 
-    result = _run_remindctl(*args)
+    result = await _run_remindctl(*args)
     if isinstance(result, list):
         return [_parse_reminder(r) for r in result]
     return []
@@ -178,7 +178,7 @@ async def list_reminders(
 
 async def list_lists() -> list[ReminderList]:
     """List all reminder lists."""
-    result = _run_remindctl("list")
+    result = await _run_remindctl("list")
     if isinstance(result, list):
         return [
             ReminderList(name=item.get("title", ""), count=item.get("reminderCount", 0))
@@ -201,7 +201,7 @@ async def create_reminder(data: ReminderCreate) -> Reminder:
         priority_str = PRIORITY_TO_STR.get(data.priority.value, "none")
         args.extend(["--priority", priority_str])
 
-    result = _run_remindctl(*args)
+    result = await _run_remindctl(*args)
     if isinstance(result, dict):
         return _parse_reminder(result)
     raise RemindctlError(message="Unexpected response format", code=0, stderr=str(result))
@@ -229,7 +229,7 @@ async def update_reminder(reminder_id: str, data: ReminderUpdate) -> Reminder:
     elif data.completed is False:
         args.append("--incomplete")
 
-    result = _run_remindctl(*args)
+    result = await _run_remindctl(*args)
     if isinstance(result, dict):
         return _parse_reminder(result)
     raise RemindctlError(message="Unexpected response format", code=0, stderr=str(result))
@@ -237,7 +237,7 @@ async def update_reminder(reminder_id: str, data: ReminderUpdate) -> Reminder:
 
 async def complete_reminder(reminder_id: str) -> Reminder:
     """Mark a reminder as complete."""
-    result = _run_remindctl("complete", reminder_id)
+    result = await _run_remindctl("complete", reminder_id)
     if isinstance(result, dict):
         return _parse_reminder(result)
     raise RemindctlError(message="Unexpected response format", code=0, stderr=str(result))
@@ -245,13 +245,13 @@ async def complete_reminder(reminder_id: str) -> Reminder:
 
 async def delete_reminder(reminder_id: str) -> dict[str, str]:
     """Delete a reminder."""
-    _run_remindctl("delete", reminder_id, "--force", allow_empty=True)
+    await _run_remindctl("delete", reminder_id, "--force", allow_empty=True)
     return {"status": "deleted", "id": reminder_id}
 
 
 async def bulk_complete(reminder_ids: list[str]) -> list[Reminder]:
     """Mark multiple reminders as complete."""
-    result = _run_remindctl("complete", *reminder_ids)
+    result = await _run_remindctl("complete", *reminder_ids)
     if isinstance(result, list):
         return [_parse_reminder(r) for r in result]
     if isinstance(result, dict):
@@ -261,13 +261,13 @@ async def bulk_complete(reminder_ids: list[str]) -> list[Reminder]:
 
 async def bulk_delete(reminder_ids: list[str]) -> dict[str, Any]:
     """Delete multiple reminders."""
-    _run_remindctl("delete", *reminder_ids, "--force", allow_empty=True)
+    await _run_remindctl("delete", *reminder_ids, "--force", allow_empty=True)
     return {"status": "deleted", "ids": reminder_ids}
 
 
 async def create_list(name: str) -> ReminderList:
     """Create a new reminder list."""
-    result = _run_remindctl("list", name, "--create")
+    result = await _run_remindctl("list", name, "--create")
     if isinstance(result, list) and len(result) > 0:
         item = result[0]
         return ReminderList(name=item.get("title", name), count=item.get("reminderCount", 0))
@@ -278,12 +278,12 @@ async def create_list(name: str) -> ReminderList:
 
 async def rename_list(name: str, new_name: str) -> ReminderList:
     """Rename a reminder list."""
-    _run_remindctl("list", name, "--rename", new_name, allow_empty=True)
+    await _run_remindctl("list", name, "--rename", new_name, allow_empty=True)
     # Rename doesn't return the updated list, so we return the new name
     return ReminderList(name=new_name, count=0)
 
 
 async def delete_list(name: str) -> dict[str, str]:
     """Delete a reminder list."""
-    _run_remindctl("list", name, "--delete", "--force", allow_empty=True)
+    await _run_remindctl("list", name, "--delete", "--force", allow_empty=True)
     return {"status": "deleted", "name": name}
