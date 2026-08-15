@@ -219,6 +219,13 @@ async def complete_reminder(reminder_id: str) -> Reminder:
     result = _run_remindctl("complete", reminder_id)
     if isinstance(result, dict):
         return _parse_reminder(result)
+    # remindctl answers `complete` with a JSON array, one entry per id, even for
+    # a single id — which is why bulk_complete below already accepts both
+    # shapes. Rejecting the list here reported HTTP 500 for a reminder that had
+    # in fact just been completed: the caller sees a failure, Reminders shows
+    # the task done, and a retry does nothing.
+    if isinstance(result, list) and len(result) == 1:
+        return _parse_reminder(result[0])
     raise RemindctlError(message="Unexpected response format", code=0, stderr=str(result))
 
 
