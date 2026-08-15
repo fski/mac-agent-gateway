@@ -200,6 +200,46 @@ class TestCompleteReminder:
         assert response.json()["completed"] is True
 
 
+class TestCompleteReminderResponseShape:
+    """remindctl answers `complete` with a one-entry array, even for one id."""
+
+    def _complete(self, payload):
+        import asyncio
+        from unittest.mock import patch
+
+        from mag.services import remindctl
+
+        with patch("mag.services.remindctl._run_remindctl") as mock_run:
+            mock_run.return_value = payload
+            return asyncio.run(remindctl.complete_reminder("ABC123"))
+
+    def test_single_entry_list_is_accepted(self) -> None:
+        """Rejecting the array reported HTTP 500 for a reminder that had just
+        been completed: the caller saw a failure, Reminders showed the task
+        done, and retrying changed nothing."""
+        reminder = self._complete(
+            [{"id": "ABC123", "title": "Call the dentist", "listName": "Reminders", "isCompleted": True}]
+        )
+        assert reminder.id == "ABC123"
+        assert reminder.completed is True
+
+    def test_dict_response_still_works(self) -> None:
+        reminder = self._complete(
+            {"id": "ABC123", "title": "Call the dentist", "listName": "Reminders", "isCompleted": True}
+        )
+        assert reminder.id == "ABC123"
+
+    def test_unexpected_shape_still_raises(self) -> None:
+        """A multi-entry array for a single id means something else happened —
+        that must not be silently reported as the one reminder we asked for."""
+        import pytest
+
+        from mag.services.remindctl import RemindctlError
+
+        with pytest.raises(RemindctlError):
+            self._complete([{"id": "A"}, {"id": "B"}])
+
+
 class TestDeleteReminder:
     """Tests for DELETE /v1/reminders/{id}."""
 
